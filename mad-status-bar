@@ -1,0 +1,240 @@
+#!/usr/bin/env php
+<?php
+
+function mad_split($str)
+{
+    return preg_split('/\\s+/', $str);
+}
+
+function mad_get_battery_one($id)
+{
+    $cap = @file_get_contents("/sys/class/power_supply/$id/capacity");
+    $status = @file_get_contents("/sys/class/power_supply/$id/status");
+
+    if ($cap === false || $status === false) {
+        return 'err';
+    }
+
+    $cap = trim($cap);
+    $status = trim($status);
+
+    if ($status == 'Charging') {
+        return "$cap+";
+    } elseif ($status == 'Discharging') {
+        return "$cap-";
+    }
+
+    return $cap;
+}
+
+function mad_get_battery($ids)
+{
+    $capacities = [];
+    $isLow = false;
+
+    foreach ($ids as $id) {
+        $cap = mad_get_battery_one($id);
+        $capacities[] = $cap;
+        if ($cap <= 20) {
+            $isLow = true;
+        }
+    }
+
+    $str = 'b:' . implode('/', $capacities);
+
+    if ($isLow) {
+        $str .= ' ** LOW BATTERY **';
+    }
+
+    return $str;
+}
+
+function mad_get_date()
+{
+    return date('D j, H:i');
+}
+
+function mad_get_kernel()
+{
+    exec('uname -r', $output, $result);
+
+    if ($result != 0) {
+        return 'err';
+    }
+
+    $val = $output[0];
+
+    $idx = strpos($val, '-');
+    if ($idx !== false) {
+        $val = substr($val, 0, $idx);
+    }
+
+    return $val;
+}
+
+function mad_get_keys()
+{
+    exec('setxkbmap -query', $output, $result);
+
+    if ($result != 0) {
+        return 'err';
+    }
+
+    $layout = '';
+    $variant = '';
+
+    foreach ($output as $line) {
+        if (str_starts_with($line, 'layout')) {
+            $layout = substr($line, 12);
+        } elseif (str_starts_with($line, 'variant')) {
+            $variant = substr($line, 12);
+        }
+    }
+
+    if ($variant) {
+        return "$layout($variant)";
+    } else {
+        return $layout;
+    }
+}
+
+function mad_get_light()
+{
+    exec('xbacklight -get', $output, $result);
+
+    if ($result != 0) {
+        return 'err';
+    }
+
+    $val = intval(round($output[0]));
+
+    return 'l:' . $val;
+}
+
+function mad_get_mem()
+{
+    exec('free', $output, $result);
+
+    if ($result != 0) {
+        return 'err';
+    }
+
+    $parts = mad_split($output[1]);
+
+    $used = intval(round(($parts[2] / $parts[1]) * 100));
+
+    return 'm:' . $used;
+}
+
+function mad_get_sound($id)
+{
+    // check first if muted
+    exec('pactl get-sink-mute ' . $id, $output, $result);
+
+    if ($result != 0) {
+        return 'err';
+    }
+
+    $parts = mad_split($output[0]);
+
+    if ($parts[1] == 'yes') {
+        return 's:x';
+    }
+
+    // not muted, check volume
+    exec('pactl get-sink-volume ' . $id, $output2, $result2);
+
+    if ($result2 != 0) {
+        return 'err';
+    }
+
+    $parts = mad_split($output2[0]);
+    $vol = substr($parts[4], 0, -1);
+
+    return 's:' . $vol;
+}
+
+function mad_get_vms()
+{
+    exec('vboxmanage list runningvms', $output, $result);
+
+    if ($result != 0) {
+        return 'err';
+    }
+
+    $num = count($output);
+
+    if ($num == 0) {
+        return null;
+    }
+
+    return 'vm:' . $num;
+}
+
+function mad_get_vpn()
+{
+    exec('ip link | grep tun0', $output, $result);
+
+    if ($result != 0) {
+        return null;
+    }
+
+    return 'vpn';
+}
+
+function mad_write_status($status)
+{
+    exec('xsetroot -name ' . escapeshellarg($status));
+}
+
+$host = gethostname();
+
+$funcs = [
+    // func               arg                 host
+    [ 'mad_get_vpn',      null,               null ],
+    [ 'mad_get_vms',      null,               null ],
+    [ 'mad_get_mem',      null,               null ],
+    [ 'mad_get_sound',    0,                  'achilles' ],
+    [ 'mad_get_sound',    1,                  'heracles' ],
+    [ 'mad_get_light',    null,               'achilles' ],
+    [ 'mad_get_battery',  ['BAT0', 'BAT1'],   'achilles' ],
+    [ 'mad_get_keys',     null,               'heracles' ],
+    [ 'mad_get_kernel',   null,               null ],
+    [ 'mad_get_date',     null,               null ],
+];
+
+$printOnly = false;
+for ($i = 1; $i < $argc; $i++) {
+    if ($argv[$i] == '-p') {
+        $printOnly = true;
+    }
+}
+
+while (true) {
+    $parts = [];
+
+    foreach ($funcs as $fn) {
+        if ($fn[2] && $fn[2] != $host) {
+            continue;
+        }
+
+        $result = $fn[0]($fn[1]);
+
+        if ($result) {
+            $parts[] = $result;
+        }
+    }
+
+    $status = ' ' . implode(' | ', $parts);
+
+    if ($printOnly) {
+        print("$status\n");
+        exit(0);
+    } else {
+        mad_write_status($status);
+    }
+
+    // sleep
+    usleep(500_000);
+}
+
