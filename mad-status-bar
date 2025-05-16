@@ -171,6 +171,12 @@ function mad_get_vms()
     return 'vm:' . $num;
 }
 
+function mad_use_vms()
+{
+    exec('command -v vboxmanage >/dev/null 2>&1', $output, $result);
+    return $result == 0;
+}
+
 function mad_get_vpn()
 {
     exec('ip link | grep tun0', $output, $result);
@@ -190,17 +196,16 @@ function mad_write_status($status)
 $host = gethostname();
 
 $funcs = [
-    // func               arg                 host
-    [ 'mad_get_vpn',      null,               null ],
-    [ 'mad_get_vms',      null,               null ],
-    [ 'mad_get_mem',      null,               null ],
-    [ 'mad_get_sound',    0,                  'achilles' ],
-    [ 'mad_get_sound',    1,                  'heracles' ],
-    [ 'mad_get_light',    null,               'achilles' ],
-    [ 'mad_get_battery',  ['BAT0', 'BAT1'],   'achilles' ],
-    [ 'mad_get_keys',     null,               'heracles' ],
-    [ 'mad_get_kernel',   null,               null ],
-    [ 'mad_get_date',     null,               null ],
+    // func               arg                 enabled
+    [ 'mad_get_vpn',      null,               true ],
+    [ 'mad_get_vms',      null,               mad_use_vms() ],
+    [ 'mad_get_mem',      null,               true ],
+    [ 'mad_get_sound',    0,                  true ],
+    [ 'mad_get_light',    null,               $host == 'achilles' ],
+    [ 'mad_get_battery',  ['BAT0', 'BAT1'],   $host == 'achilles' ],
+    [ 'mad_get_keys',     null,               $host == 'heracles' ],
+    [ 'mad_get_kernel',   null,               true ],
+    [ 'mad_get_date',     null,               true ],
 ];
 
 $printOnly = false;
@@ -214,7 +219,7 @@ while (true) {
     $parts = [];
 
     foreach ($funcs as $fn) {
-        if ($fn[2] && $fn[2] != $host) {
+        if (!$fn[2]) {
             continue;
         }
 
@@ -235,6 +240,5 @@ while (true) {
     }
 
     // sleep
-    usleep(500_000);
+    sleep(1);
 }
-
