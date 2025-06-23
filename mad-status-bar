@@ -154,6 +154,22 @@ function mad_get_sound($id)
     return 's:' . $vol;
 }
 
+function mad_get_temps()
+{
+    exec('sensors -j', $output, $result);
+
+    if ($result != 0) {
+        return 'err';
+    }
+
+    $data = json_decode($output[0], true);
+
+    $cpuTemp = $data['coretemp-isa-0000']['Package id 0']['temp1_input'] ?? -1;
+    $gpuTemp = $data['amdgpu-pci-0300']['junction']['temp2_input'] ?? -1;
+
+    return 't:' . intval($cpuTemp) . '/' . intval($gpuTemp);
+}
+
 function mad_get_vms()
 {
     exec('vboxmanage list runningvms', $output, $result);
@@ -200,6 +216,7 @@ $funcs = [
     [ 'mad_get_vpn',      null,               true ],
     [ 'mad_get_vms',      null,               mad_use_vms() ],
     [ 'mad_get_mem',      null,               true ],
+    [ 'mad_get_temps',    null,               $host == 'heracles' ],
     [ 'mad_get_sound',    0,                  true ],
     [ 'mad_get_light',    null,               $host == 'achilles' ],
     [ 'mad_get_battery',  ['BAT0', 'BAT1'],   $host == 'achilles' ],
